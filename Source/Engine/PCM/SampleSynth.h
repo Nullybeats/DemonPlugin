@@ -156,21 +156,17 @@ public:
 
     void stopNote(float /*velocity*/, bool allowTailOff) override
     {
-        if (envParams.enabled)
+        // Always use the envelope for note-off behavior
+        // When ENV button is off, we use default natural envelope values
+        if (allowTailOff)
         {
-            // Envelope is active - use release phase
-            if (allowTailOff)
-            {
-                adsr.noteOff();
-            }
-            else
-            {
-                clearCurrentNote();
-                adsr.reset();
-            }
+            adsr.noteOff();
         }
-        // When envelope is disabled, do nothing on note-off
-        // The sample will play through to completion naturally
+        else
+        {
+            clearCurrentNote();
+            adsr.reset();
+        }
     }
 
     void pitchWheelMoved(int newPitchWheelValue) override
@@ -210,8 +206,8 @@ public:
                     r = (inR[pos] * invAlpha + inR[pos + 1] * alpha);
                 }
 
-                // Apply envelope if enabled, otherwise just use velocity
-                float envelopeValue = envParams.enabled ? adsr.process() : currentVelocity;
+                // Always apply envelope - when ENV button is off, default values are used
+                float envelopeValue = adsr.process();
 
                 l *= lgain * envelopeValue;
                 r *= rgain * envelopeValue;
@@ -224,7 +220,7 @@ public:
 
                 // Check if sample ended or envelope finished
                 bool sampleEnded = sourceSamplePosition >= data.getNumSamples() - 1;
-                bool envEnded = envParams.enabled && !adsr.isActive();
+                bool envEnded = !adsr.isActive();
 
                 if (sampleEnded || envEnded)
                 {
@@ -254,13 +250,31 @@ private:
     void updateEnvelope()
     {
         DSP::ADSR::Parameters adsrParams;
-        adsrParams.attack = envParams.attack;
-        adsrParams.decay = envParams.decay;
-        adsrParams.sustain = envParams.sustain;
-        adsrParams.release = envParams.release;
-        adsrParams.attackCurve = envParams.attackCurve;
-        adsrParams.decayCurve = envParams.decayCurve;
-        adsrParams.releaseCurve = envParams.releaseCurve;
+
+        if (envParams.enabled)
+        {
+            // Use user-configured envelope values
+            adsrParams.attack = envParams.attack;
+            adsrParams.decay = envParams.decay;
+            adsrParams.sustain = envParams.sustain;
+            adsrParams.release = envParams.release;
+            adsrParams.attackCurve = envParams.attackCurve;
+            adsrParams.decayCurve = envParams.decayCurve;
+            adsrParams.releaseCurve = envParams.releaseCurve;
+        }
+        else
+        {
+            // ENV button is OFF - use default natural envelope values
+            // Quick attack, full sustain, natural release - feels like a real instrument
+            adsrParams.attack = 0.005f;    // 5ms - instant but no click
+            adsrParams.decay = 0.1f;       // 100ms natural decay
+            adsrParams.sustain = 1.0f;     // Full sustain while held
+            adsrParams.release = 0.15f;    // 150ms natural release
+            adsrParams.attackCurve = 0.0f; // Linear
+            adsrParams.decayCurve = 0.0f;
+            adsrParams.releaseCurve = 0.0f;
+        }
+
         adsr.setParameters(adsrParams);
     }
 
