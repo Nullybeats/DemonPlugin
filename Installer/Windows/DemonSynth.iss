@@ -141,6 +141,20 @@ begin
   Result := GetDateTimeString('yyyy-mm-dd', '-', ':');
 end;
 
+function EscapeBackslashes(const S: String): String;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 1 to Length(S) do
+  begin
+    if S[I] = '\' then
+      Result := Result + '\\'
+    else
+      Result := Result + S[I];
+  end;
+end;
+
 procedure InitializeWizard;
 begin
   // Create custom page for samples directory selection
@@ -202,7 +216,7 @@ begin
     ConfigFile := ConfigDir + '\config.json';
     ConfigContent := '{' + #13#10 +
       '    "version": "' + ExpandConstant('{#MyAppVersion}') + '",' + #13#10 +
-      '    "samplesPath": "' + StringReplace(GetSamplesDir(''), '\', '\\', [rfReplaceAll]) + '",' + #13#10 +
+      '    "samplesPath": "' + EscapeBackslashes(GetSamplesDir('')) + '",' + #13#10 +
       '    "installedDate": "' + GetCurrentDate('') + '",' + #13#10 +
       '    "licenseAccepted": true' + #13#10 +
       '}';
