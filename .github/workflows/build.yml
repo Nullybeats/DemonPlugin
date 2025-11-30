@@ -16,10 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          lfs: true
-
-      - name: Pull LFS files
-        run: git lfs pull
+          lfs: false  # Skip LFS - samples hosted separately
 
       - name: Setup MSVC
         uses: microsoft/setup-msbuild@v2
@@ -34,15 +31,8 @@ jobs:
       - name: Build Release
         run: cmake --build build --config Release
 
-      - name: Create Windows Installer
-        run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "Installer\Windows\DemonSynth.iss"
-
-      - name: Upload Windows Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: DemonSynth-Windows-Installer
-          path: Installer/Output/*.exe
+      # Note: Windows installer skipped - requires samples
+      # Users download samples separately from release page
 
       - name: Upload Windows VST3
         uses: actions/upload-artifact@v4
@@ -58,10 +48,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          lfs: true
-
-      - name: Pull LFS files
-        run: git lfs pull
+          lfs: false  # Skip LFS - samples hosted separately
 
       - name: Configure CMake (Universal Binary)
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
@@ -69,21 +56,8 @@ jobs:
       - name: Build Release
         run: cmake --build build --config Release
 
-      - name: Create Installer Apps
-        run: |
-          chmod +x Installer/macOS/create_installer_app.sh
-          ./Installer/macOS/create_installer_app.sh
-
-      - name: Create DMG
-        run: |
-          chmod +x Installer/macOS/create_dmg.sh
-          ./Installer/macOS/create_dmg.sh
-
-      - name: Upload macOS DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: DemonSynth-macOS-DMG
-          path: Installer/Output/*.dmg
+      # Note: macOS installer/DMG skipped - requires samples
+      # Users download samples separately from release page
 
       - name: Upload macOS VST3
         uses: actions/upload-artifact@v4
