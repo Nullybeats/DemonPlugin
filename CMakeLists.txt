@@ -55,7 +55,6 @@ target_sources(NulyBeatsPlugin
 
         # DSP - Filters
         Source/DSP/Filters/SVFFilter.cpp
-        Source/DSP/Filters/LadderFilter.cpp
 
         # DSP - Effects
         Source/DSP/Effects/FXRack.cpp

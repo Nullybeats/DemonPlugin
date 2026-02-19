@@ -3,11 +3,16 @@ name: Build Demon Synth
 on:
   push:
     branches: [main, master]
+    tags:
+      - 'v*'   # v1.0.0, v1.1.0, etc. → triggers GitHub Release
   pull_request:
     branches: [main, master]
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
+  # ─────────────────────────────────────────────────────────
+  #  WINDOWS — ships immediately, SmartScreen warning only
+  # ─────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
 
@@ -16,14 +21,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          lfs: false  # Skip LFS - samples hosted separately
+          lfs: false
 
       - name: Setup MSVC
         uses: microsoft/setup-msbuild@v2
 
       - name: Install Inno Setup
-        run: |
-          choco install innosetup -y
+        run: choco install innosetup -y
 
       - name: Configure CMake
         run: cmake -B build -G "Visual Studio 17 2022" -A x64
@@ -41,13 +45,26 @@ jobs:
         with:
           name: DemonSynth-Windows-Installer
           path: Installer/Output/DemonSynth_v*.exe
+          retention-days: 90
 
       - name: Upload Windows VST3
         uses: actions/upload-artifact@v4
         with:
           name: DemonSynth-Windows-VST3
           path: build/NulyBeatsPlugin_artefacts/Release/VST3/
+          retention-days: 90
 
+  # ─────────────────────────────────────────────────────────
+  #  macOS — unsigned now; signing auto-enables when you add
+  #  the 5 secrets below to GitHub repo Settings → Secrets
+  #
+  #  Secrets needed:
+  #    APPLE_ID               your Apple ID email
+  #    APPLE_CERT_P12         base64 of Developer ID .p12 cert
+  #    APPLE_CERT_PASSWORD    password set when exporting .p12
+  #    APPLE_TEAM_ID          10-char team ID (e.g. ABC123DEF4)
+  #    APPLE_NOTARIZE_PASSWORD  App-Specific Password from appleid.apple.com
+  # ─────────────────────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
 
@@ -56,7 +73,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          lfs: false  # Skip LFS - samples hosted separately
+          lfs: false
 
       - name: Configure CMake (Universal Binary)
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
@@ -64,17 +81,108 @@ jobs:
       - name: Build Release
         run: cmake --build build --config Release
 
-      # Note: macOS installer/DMG skipped - requires samples
-      # Users download samples separately from release page
+      - name: Import signing certificate
+        if: ${{ secrets.APPLE_CERT_P12 != '' }}
+        env:
+          CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          echo "$CERT_P12" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          rm /tmp/cert.p12
+
+      - name: Sign VST3
+        if: ${{ secrets.APPLE_CERT_P12 != '' }}
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          codesign --deep --force --verify --verbose \
+            --sign "Developer ID Application: NullyBeats ($TEAM_ID)" \
+            --options runtime \
+            "build/NulyBeatsPlugin_artefacts/Release/VST3/Demon Synth.vst3"
+
+      - name: Sign AU
+        if: ${{ secrets.APPLE_CERT_P12 != '' }}
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          codesign --deep --force --verify --verbose \
+            --sign "Developer ID Application: NullyBeats ($TEAM_ID)" \
+            --options runtime \
+            "build/NulyBeatsPlugin_artefacts/Release/AU/Demon Synth.component"
+
+      - name: Notarize and staple
+        if: ${{ secrets.APPLE_CERT_P12 != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARIZE_PASSWORD: ${{ secrets.APPLE_NOTARIZE_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          VST3="build/NulyBeatsPlugin_artefacts/Release/VST3/Demon Synth.vst3"
+          AU="build/NulyBeatsPlugin_artefacts/Release/AU/Demon Synth.component"
+          zip -r /tmp/DemonSynth_plugins.zip "$VST3" "$AU"
+          xcrun notarytool submit /tmp/DemonSynth_plugins.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$NOTARIZE_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+          xcrun stapler staple "$VST3"
+          xcrun stapler staple "$AU"
 
       - name: Upload macOS VST3
         uses: actions/upload-artifact@v4
         with:
           name: DemonSynth-macOS-VST3
           path: build/NulyBeatsPlugin_artefacts/Release/VST3/
+          retention-days: 90
 
       - name: Upload macOS AU
         uses: actions/upload-artifact@v4
         with:
           name: DemonSynth-macOS-AU
           path: build/NulyBeatsPlugin_artefacts/Release/AU/
+          retention-days: 90
+
+  # ─────────────────────────────────────────────────────────
+  #  RELEASE — only runs on version tags (v1.0.0, v1.1.0…)
+  #  Creates a permanent GitHub Release with download links
+  # ─────────────────────────────────────────────────────────
+  publish-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Demon Synth ${{ github.ref_name }}"
+          body: |
+            ## Demon Synth ${{ github.ref_name }} by NullyBeats
+
+            ### Installation
+
+            **macOS**
+            - Download `DemonSynth-macOS-VST3` → copy `Demon Synth.vst3` to `/Library/Audio/Plug-Ins/VST3/`
+            - Download `DemonSynth-macOS-AU` → copy `Demon Synth.component` to `/Library/Audio/Plug-Ins/Components/`
+
+            **Windows**
+            - Run `DemonSynth-Windows-Installer` and follow the prompts
+
+            ### Samples
+            See README for Strings sample library installation.
+          files: release-assets/**/*
+          draft: false
+          prerelease: false
