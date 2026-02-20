@@ -112,10 +112,20 @@ private:
 
         juce::Thread::launch([email, password, safeThis]() {
             auto [token, userEmail, error] = callLogin(email, password);
-            juce::MessageManager::callAsync([token, userEmail, error, safeThis]() {
+
+            juce::String verifyError;
+            if (error.isEmpty() && token.isNotEmpty())
+            {
+                if (!callVerify(token))
+                    verifyError = "No Demon Synth license found. Purchase at producertour.com";
+            }
+
+            juce::MessageManager::callAsync([token, userEmail, error, verifyError, safeThis]() {
                 if (safeThis == nullptr) return;
                 safeThis->signInButton.setEnabled(true);
-                if (error.isEmpty() && token.isNotEmpty())
+
+                auto finalError = error.isNotEmpty() ? error : verifyError;
+                if (finalError.isEmpty() && token.isNotEmpty())
                 {
                     if (safeThis->onLoginSuccess)
                         safeThis->onLoginSuccess(token, userEmail);
@@ -123,7 +133,7 @@ private:
                 else
                 {
                     safeThis->statusLabel.setColour(juce::Label::textColourId, juce::Colours::orangered);
-                    safeThis->statusLabel.setText(error.isEmpty() ? "Login failed." : error,
+                    safeThis->statusLabel.setText(finalError.isEmpty() ? "Login failed." : finalError,
                                                   juce::dontSendNotification);
                 }
             });
@@ -161,6 +171,21 @@ private:
             return {"", "", apiError.isEmpty() ? "Invalid credentials." : apiError};
         }
         return {token, userEmail, ""};
+    }
+
+    // Synchronous — call on background thread only.
+    static bool callVerify(const juce::String& token)
+    {
+        juce::URL verifyUrl("https://api.producertour.com/api/plugin/verify");
+        auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                        .withExtraHeaders("Authorization: Bearer " + token + "\r\nAccept: application/json")
+                        .withConnectionTimeoutMs(10000);
+
+        auto stream = verifyUrl.createInputStream(opts);
+        if (stream == nullptr) return false;
+
+        auto response = stream->readEntireStreamAsString();
+        return response.contains("\"valid\":true");
     }
 
     static juce::String extractJsonString(const juce::String& json, const juce::String& key)
