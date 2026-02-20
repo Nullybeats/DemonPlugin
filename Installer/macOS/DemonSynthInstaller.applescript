@@ -80,22 +80,22 @@ end if
 set installType to item 1 of installType
 
 -- ====================================
--- STEP 4: Choose Sample Presets Location
+-- STEP 4: Choose Sound Banks Location
 -- ====================================
 set samplesPath to defaultSamplesPath
 
 if installType is not "VST3 Plugin Only" then
-	set samplesDialog to display dialog "Choose where to install Sample Presets:
+	set samplesDialog to display dialog "Choose where to install Sound Banks (~8.5 GB):
 
-The plugin will look for samples in this folder.
+Demon Synth will automatically download all sound banks during installation.
 
-Default: " & defaultSamplesPath buttons {"Use Default", "Choose Folder...", "Cancel"} default button "Use Default" with title "Sample Presets Location" with icon note
+Default: " & defaultSamplesPath buttons {"Use Default", "Choose Folder...", "Cancel"} default button "Use Default" with title "Sound Banks Location" with icon note
 
 	if button returned of samplesDialog is "Cancel" then
 		return
 	else if button returned of samplesDialog is "Choose Folder..." then
 		try
-			set samplesFolder to choose folder with prompt "Select folder for Sample Presets:"
+			set samplesFolder to choose folder with prompt "Select folder for Sound Banks (needs ~10 GB free):"
 			set samplesPath to POSIX path of samplesFolder
 		on error
 			return
@@ -117,7 +117,10 @@ if installType is "Full Installation (Recommended)" or installType is "Custom In
 • AU Plugin: " & defaultAUPath & "
 • Standalone App: " & defaultAppPath & "
 • Uninstaller: " & defaultAppPath & "
-• Sample Presets: " & samplesPath
+• Sound Banks (~8.5 GB): " & samplesPath & "
+
+Sound banks will be downloaded from the internet.
+Ensure you have ~10 GB of free space and a stable connection."
 else
 	set confirmText to confirmText & "
 • VST3 Plugin: " & defaultVST3Path & "
@@ -177,11 +180,36 @@ try
 		do shell script "xattr -rd com.apple.quarantine " & quoted form of (defaultAppPath & "/Uninstall Demon Synth.app") & " 2>/dev/null || true"
 	end if
 
-	-- Install Samples
+	-- Download Sound Banks from R2
 	if installType is not "VST3 Plugin Only" then
-		if (do shell script "test -d " & quoted form of (installerFolder & "/Samples") & " && echo 'yes' || echo 'no'") is "yes" then
-			do shell script "cp -R " & quoted form of (installerFolder & "/Samples/") & "* " & quoted form of samplesPath & " 2>/dev/null || true"
-		end if
+		set r2Base to "https://pub-5e192bc6cd8640f1b75ee043036d06d2.r2.dev/soundbanks/demon-synth/"
+		set soundBanks to {"Acoustic-Piano", "Arps", "Bass", "Bells", "Brass", "E-Piano", "Flutes", "Leads", "Moog-Bass", "Pads", "Plucks", "Pulsating", "SFX", "Strings", "Synth-Bass", "Synths", "WahWah"}
+		set bankCount to count of soundBanks
+		set bankNum to 0
+
+		display dialog "Downloading Sound Banks (~8.5 GB)
+
+This will take 20-90 minutes depending on your internet speed.
+The installer will continue automatically — please do not close this window." buttons {"OK"} default button "OK" with title "Downloading Sound Banks" with icon note
+
+		repeat with bankSlug in soundBanks
+			set bankNum to bankNum + 1
+			set zipUrl to r2Base & bankSlug & "-v1.0.zip"
+			set zipFile to "/tmp/DemonSynth-" & bankSlug & "-v1.0.zip"
+			-- Category folder name: replace dashes back to spaces
+			set categoryName to do shell script "echo " & quoted form of (bankSlug as string) & " | tr '-' ' '"
+
+			try
+				-- Download
+				do shell script "curl -L -f -o " & quoted form of zipFile & " " & quoted form of zipUrl
+				-- Extract: zip contains the category folder directly
+				do shell script "unzip -o " & quoted form of zipFile & " -d " & quoted form of samplesPath
+				-- Cleanup
+				do shell script "rm -f " & quoted form of zipFile
+			on error errMsg
+				display dialog "Failed to download " & (bankSlug as string) & ":" & return & errMsg & return & return & "You can re-run the installer to retry, or download manually from producertour.com/account/purchases." buttons {"Continue Anyway"} default button "Continue Anyway" with title "Download Error" with icon caution
+			end try
+		end repeat
 	end if
 
 	-- Write config file
@@ -197,11 +225,13 @@ try
 	-- Success!
 	display dialog "Installation Complete!
 
-Demon Synth has been successfully installed.
+Demon Synth and all sound banks have been installed.
 
-Please restart your DAW (FL Studio, Logic Pro, etc.) to use the plugin.
+Next steps:
+1. Restart your DAW (FL Studio, Logic Pro, etc.)
+2. Load Demon Synth and sign in with your Producer Tour account
 
-Sample presets are located at:
+Sound banks installed at:
 " & samplesPath & "
 
 To uninstall, run 'Uninstall Demon Synth' from Applications.

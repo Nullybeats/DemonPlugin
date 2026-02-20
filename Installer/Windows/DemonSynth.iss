@@ -39,10 +39,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Messages]
 WelcomeLabel1=Welcome to the {#MyAppName} Setup
-WelcomeLabel2=This will install {#MyAppName} {#MyAppVersion} on your computer.%n%n{#MyAppCopyright}%n%nTo activate the plugin and download sound banks, sign in with your%nProducer Tour account when you first load the plugin in your DAW.%n%nIt is recommended that you close all other applications before continuing.
+WelcomeLabel2=This will install {#MyAppName} {#MyAppVersion} on your computer.%n%n{#MyAppCopyright}%n%nThe installer will download all sound banks (~8.5 GB) automatically.%nPlease ensure you have a stable internet connection and ~10 GB of free space.%n%nIt is recommended that you close all other applications before continuing.
 FinishedHeadingLabel=Completing the {#MyAppName} Setup
-FinishedLabelNoIcons=Setup has finished installing {#MyAppName} on your computer.%n%nOpen your DAW, load Demon Synth, and sign in with your Producer Tour account to activate.%n%nDownload your sound banks from producertour.com/account/purchases.
-FinishedLabel=Setup has finished installing {#MyAppName} on your computer.%n%nOpen your DAW, load Demon Synth, and sign in with your Producer Tour account to activate.%n%nDownload your sound banks from producertour.com/account/purchases.
+FinishedLabelNoIcons=Setup has finished installing {#MyAppName} on your computer.%n%nOpen your DAW, load Demon Synth, and sign in with your Producer Tour account to activate.
+FinishedLabel=Setup has finished installing {#MyAppName} on your computer.%n%nOpen your DAW, load Demon Synth, and sign in with your Producer Tour account to activate.
 
 [Types]
 Name: "full"; Description: "Full installation (VST3 + Standalone)"
@@ -109,6 +109,10 @@ Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Effe
 var
   SamplesDirPage: TInputDirWizardPage;
   SamplesDir: String;
+  DownloadPage: TDownloadWizardPage;
+
+const
+  R2BaseUrl = 'https://pub-5e192bc6cd8640f1b75ee043036d06d2.r2.dev/soundbanks/demon-synth/';
 
 function GetSamplesDir(Param: String): String;
 begin
@@ -133,26 +137,35 @@ begin
   end;
 end;
 
+function OnDownloadProgress(const Url, Filename: String; const Progress, ProgressMax: Int64): Boolean;
+begin
+  if ProgressMax <> 0 then
+    DownloadPage.SetProgress(Progress, ProgressMax);
+  Result := True;
+end;
+
 procedure InitializeWizard;
 begin
-  // Custom page: let user choose where they'll put their downloaded sound banks
+  // Page: choose where to install sound banks
   SamplesDirPage := CreateInputDirPage(
     wpSelectComponents,
     'Sound Banks Location',
-    'Where will you store your Demon Synth sound banks?',
-    'After installing, download your sound banks from producertour.com/account/purchases' + #13#10 +
-    'and extract them to the folder selected here.' + #13#10 + #13#10 +
+    'Where should Demon Synth install its sound banks?',
+    'The installer will automatically download ~8.5 GB of sound banks to this folder.' + #13#10 +
     'Choose a drive with at least 10 GB of free space.',
     False,
     'New Folder'
   );
   SamplesDirPage.Add('');
   SamplesDirPage.Values[0] := ExpandConstant('{userappdata}\NullyBeats\Demon Synth\Samples');
-end;
 
-function ShouldSkipPage(PageID: Integer): Boolean;
-begin
-  Result := False;
+  // Download wizard page (shown during install)
+  DownloadPage := CreateDownloadPage(
+    'Downloading Sound Banks',
+    'Please wait while all sound banks are downloaded and installed (~8.5 GB total).' + #13#10 +
+    'This may take 20-90 minutes depending on your internet speed.',
+    @OnDownloadProgress
+  );
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -169,10 +182,92 @@ begin
   end;
 end;
 
+procedure ExtractZip(const ZipFile, DestPath: String);
+var
+  PSCmd: String;
+  ResultCode: Integer;
+begin
+  PSCmd := '-NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path ' +
+           '''' + ZipFile + '''' + ' -DestinationPath ' +
+           '''' + DestPath + '''' + ' -Force"';
+  Exec('powershell.exe', PSCmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ConfigDir, ConfigFile, ConfigContent: String;
+  TmpDir, ZipFile: String;
+  Slugs: TStringList;
+  I: Integer;
 begin
+  if CurStep = ssInstall then
+  begin
+    // Queue all 17 sound bank downloads
+    DownloadPage.Clear;
+    DownloadPage.Add(R2BaseUrl + 'Acoustic-Piano-v1.0.zip', 'Acoustic-Piano-v1.0.zip', '');
+    DownloadPage.Add(R2BaseUrl + 'Arps-v1.0.zip',           'Arps-v1.0.zip',           '');
+    DownloadPage.Add(R2BaseUrl + 'Bass-v1.0.zip',           'Bass-v1.0.zip',           '');
+    DownloadPage.Add(R2BaseUrl + 'Bells-v1.0.zip',          'Bells-v1.0.zip',          '');
+    DownloadPage.Add(R2BaseUrl + 'Brass-v1.0.zip',          'Brass-v1.0.zip',          '');
+    DownloadPage.Add(R2BaseUrl + 'E-Piano-v1.0.zip',        'E-Piano-v1.0.zip',        '');
+    DownloadPage.Add(R2BaseUrl + 'Flutes-v1.0.zip',         'Flutes-v1.0.zip',         '');
+    DownloadPage.Add(R2BaseUrl + 'Leads-v1.0.zip',          'Leads-v1.0.zip',          '');
+    DownloadPage.Add(R2BaseUrl + 'Moog-Bass-v1.0.zip',      'Moog-Bass-v1.0.zip',      '');
+    DownloadPage.Add(R2BaseUrl + 'Pads-v1.0.zip',           'Pads-v1.0.zip',           '');
+    DownloadPage.Add(R2BaseUrl + 'Plucks-v1.0.zip',         'Plucks-v1.0.zip',         '');
+    DownloadPage.Add(R2BaseUrl + 'Pulsating-v1.0.zip',      'Pulsating-v1.0.zip',      '');
+    DownloadPage.Add(R2BaseUrl + 'SFX-v1.0.zip',            'SFX-v1.0.zip',            '');
+    DownloadPage.Add(R2BaseUrl + 'Strings-v1.0.zip',        'Strings-v1.0.zip',        '');
+    DownloadPage.Add(R2BaseUrl + 'Synth-Bass-v1.0.zip',     'Synth-Bass-v1.0.zip',     '');
+    DownloadPage.Add(R2BaseUrl + 'Synths-v1.0.zip',         'Synths-v1.0.zip',         '');
+    DownloadPage.Add(R2BaseUrl + 'WahWah-v1.0.zip',         'WahWah-v1.0.zip',         '');
+
+    DownloadPage.Show;
+    try
+      DownloadPage.Download;
+    except
+      MsgBox('Sound bank download failed: ' + GetExceptionMessage + #13#10 +
+             'You can re-run the installer to retry downloading.', mbCriticalError, MB_OK);
+    end;
+    DownloadPage.Hide;
+
+    // Extract all downloaded zips into samples dir
+    ForceDirectories(GetSamplesDir(''));
+    TmpDir := ExpandConstant('{tmp}\');
+    Slugs := TStringList.Create;
+    try
+      Slugs.Add('Acoustic-Piano-v1.0');
+      Slugs.Add('Arps-v1.0');
+      Slugs.Add('Bass-v1.0');
+      Slugs.Add('Bells-v1.0');
+      Slugs.Add('Brass-v1.0');
+      Slugs.Add('E-Piano-v1.0');
+      Slugs.Add('Flutes-v1.0');
+      Slugs.Add('Leads-v1.0');
+      Slugs.Add('Moog-Bass-v1.0');
+      Slugs.Add('Pads-v1.0');
+      Slugs.Add('Plucks-v1.0');
+      Slugs.Add('Pulsating-v1.0');
+      Slugs.Add('SFX-v1.0');
+      Slugs.Add('Strings-v1.0');
+      Slugs.Add('Synth-Bass-v1.0');
+      Slugs.Add('Synths-v1.0');
+      Slugs.Add('WahWah-v1.0');
+
+      for I := 0 to Slugs.Count - 1 do
+      begin
+        ZipFile := TmpDir + Slugs[I] + '.zip';
+        if FileExists(ZipFile) then
+        begin
+          ExtractZip(ZipFile, GetSamplesDir(''));
+          DeleteFile(ZipFile);
+        end;
+      end;
+    finally
+      Slugs.Free;
+    end;
+  end;
+
   if CurStep = ssPostInstall then
   begin
     // Write config.json so the plugin knows where to look for samples
@@ -210,12 +305,11 @@ begin
   if WizardIsComponentSelected('standalone') then
     S := S + Space + 'Standalone App: ' + ExpandConstant('{app}\Demon Synth.exe') + NewLine;
 
-  S := S + Space + 'Sound Banks folder: ' + GetSamplesDir('') + NewLine;
+  S := S + Space + 'Sound Banks: ' + GetSamplesDir('') + ' (~8.5 GB download)' + NewLine;
   S := S + NewLine;
   S := S + 'After installation:' + NewLine;
   S := S + Space + '1. Restart your DAW' + NewLine;
   S := S + Space + '2. Load Demon Synth and sign in with your Producer Tour account' + NewLine;
-  S := S + Space + '3. Download sound banks from producertour.com/account/purchases' + NewLine;
 
   Result := S;
 end;
