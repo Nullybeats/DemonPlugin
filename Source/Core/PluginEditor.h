@@ -20,6 +20,168 @@
 
 namespace NulyBeats {
 
+// Semi-transparent login overlay shown when the plugin is not activated
+class AuthOverlayComponent : public juce::Component
+{
+public:
+    // Fired on the message thread after a successful login: (authToken, email)
+    std::function<void(const juce::String&, const juce::String&)> onLoginSuccess;
+
+    AuthOverlayComponent()
+    {
+        emailEditor.setInputRestrictions(0);
+        emailEditor.setTextToShowWhenEmpty("Email address", juce::Colours::grey);
+        emailEditor.setReturnKeyStartsNewLine(false);
+        addAndMakeVisible(emailEditor);
+
+        passwordEditor.setPasswordCharacter('*');
+        passwordEditor.setTextToShowWhenEmpty("Password", juce::Colours::grey);
+        passwordEditor.setReturnKeyStartsNewLine(false);
+        addAndMakeVisible(passwordEditor);
+
+        signInButton.setButtonText("Sign In");
+        signInButton.setColour(juce::TextButton::buttonColourId, HellcatColors::hellcatRed);
+        signInButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        signInButton.onClick = [this]() { doLogin(); };
+        addAndMakeVisible(signInButton);
+
+        statusLabel.setJustificationType(juce::Justification::centred);
+        statusLabel.setFont(juce::Font(11.0f));
+        statusLabel.setColour(juce::Label::textColourId, juce::Colours::orangered);
+        addAndMakeVisible(statusLabel);
+
+        purchaseLink.setButtonText("No account? Purchase at producertour.com");
+        purchaseLink.setURL(juce::URL("https://producertour.com"));
+        purchaseLink.setColour(juce::HyperlinkButton::textColourId, HellcatColors::textTertiary);
+        addAndMakeVisible(purchaseLink);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.setColour(juce::Colour(0xd0000000));
+        g.fillRect(getLocalBounds());
+
+        g.setColour(juce::Colour(0xff1a1c1e));
+        g.fillRoundedRectangle(cardBounds.toFloat(), 10.0f);
+        g.setColour(HellcatColors::panelLight);
+        g.drawRoundedRectangle(cardBounds.toFloat(), 10.0f, 1.0f);
+
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(18.0f, juce::Font::bold));
+        g.drawText("Sign in to Demon Synth",
+                   cardBounds.withHeight(54), juce::Justification::centred);
+
+        g.setColour(HellcatColors::textTertiary);
+        g.setFont(juce::Font(11.0f));
+        g.drawText("Use your Producer Tour account credentials",
+                   cardBounds.withTrimmedTop(52).withHeight(20), juce::Justification::centred);
+    }
+
+    void resized() override
+    {
+        cardBounds = getLocalBounds().withSizeKeepingCentre(340, 230);
+        auto area  = cardBounds.reduced(24).withTrimmedTop(72);
+
+        emailEditor.setBounds(area.removeFromTop(34));
+        area.removeFromTop(6);
+        passwordEditor.setBounds(area.removeFromTop(34));
+        area.removeFromTop(10);
+        signInButton.setBounds(area.removeFromTop(34).withSizeKeepingCentre(140, 34));
+        area.removeFromTop(6);
+        statusLabel.setBounds(area.removeFromTop(22));
+        purchaseLink.setBounds(area.removeFromTop(20));
+    }
+
+private:
+    void doLogin()
+    {
+        if (emailEditor.getText().trim().isEmpty() || passwordEditor.getText().isEmpty())
+        {
+            statusLabel.setColour(juce::Label::textColourId, juce::Colours::orangered);
+            statusLabel.setText("Please enter your email and password.", juce::dontSendNotification);
+            return;
+        }
+
+        statusLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+        statusLabel.setText("Signing in...", juce::dontSendNotification);
+        signInButton.setEnabled(false);
+
+        auto email    = emailEditor.getText().trim();
+        auto password = passwordEditor.getText();
+        auto safeThis = juce::Component::SafePointer<AuthOverlayComponent>(this);
+
+        juce::Thread::launch([email, password, safeThis]() {
+            auto [token, userEmail, error] = callLogin(email, password);
+            juce::MessageManager::callAsync([token, userEmail, error, safeThis]() {
+                if (safeThis == nullptr) return;
+                safeThis->signInButton.setEnabled(true);
+                if (error.isEmpty() && token.isNotEmpty())
+                {
+                    if (safeThis->onLoginSuccess)
+                        safeThis->onLoginSuccess(token, userEmail);
+                }
+                else
+                {
+                    safeThis->statusLabel.setColour(juce::Label::textColourId, juce::Colours::orangered);
+                    safeThis->statusLabel.setText(error.isEmpty() ? "Login failed." : error,
+                                                  juce::dontSendNotification);
+                }
+            });
+        });
+    }
+
+    // Synchronous network call — must run on a background thread only.
+    static std::tuple<juce::String, juce::String, juce::String>
+    callLogin(const juce::String& email, const juce::String& password)
+    {
+        auto body = juce::String("{\"email\":\"") + email
+                  + "\",\"password\":\"" + password
+                  + "\",\"rememberMe\":true}";
+
+        auto loginUrl = juce::URL("https://api.producertour.com/api/auth/login")
+                            .withPOSTData(body);
+        auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                        .withExtraHeaders("Content-Type: application/json\r\nAccept: application/json")
+                        .withConnectionTimeoutMs(10000);
+
+        auto stream = loginUrl.createInputStream(opts);
+        if (stream == nullptr)
+            return {"", "", "Connection failed. Check your internet connection."};
+
+        auto response = stream->readEntireStreamAsString();
+        auto token    = extractJsonString(response, "token");
+        auto userEmail = juce::String{};
+        auto userPos   = response.indexOf("\"user\"");
+        if (userPos >= 0)
+            userEmail = extractJsonString(response.substring(userPos), "email");
+
+        if (token.isEmpty())
+        {
+            auto apiError = extractJsonString(response, "error");
+            return {"", "", apiError.isEmpty() ? "Invalid credentials." : apiError};
+        }
+        return {token, userEmail, ""};
+    }
+
+    static juce::String extractJsonString(const juce::String& json, const juce::String& key)
+    {
+        int keyPos = json.indexOf("\"" + key + "\"");
+        if (keyPos < 0) return {};
+        int colon  = json.indexOfChar(keyPos, ':') + 1;
+        int qOpen  = json.indexOfChar(colon,  '"') + 1;
+        int qClose = json.indexOfChar(qOpen,  '"');
+        if (qOpen <= 0 || qClose <= qOpen) return {};
+        return json.substring(qOpen, qClose);
+    }
+
+    juce::Rectangle<int>  cardBounds;
+    juce::TextEditor      emailEditor;
+    juce::TextEditor      passwordEditor;
+    juce::TextButton      signInButton;
+    juce::Label           statusLabel;
+    juce::HyperlinkButton purchaseLink;
+};
+
 // Envelope preset shape definition
 struct EnvelopePreset
 {
@@ -345,6 +507,9 @@ private:
     }
 
     std::vector<std::unique_ptr<MidiLearnListener>> midiLearnListeners;
+
+    // Auth overlay (shown when not activated)
+    std::unique_ptr<AuthOverlayComponent> authOverlay;
 
     // Tooltip window for hover help
     std::unique_ptr<juce::TooltipWindow> tooltipWindow;

@@ -529,6 +529,39 @@ PluginEditor::PluginEditor(PluginProcessor& p)
 
     // Start timer for updates
     startTimerHz(30);
+
+    // ===== Auth validation (background thread) =====
+    // Reads token from config.json (already parsed in readSamplesPathFromConfig),
+    // verifies against the Producer Tour API, then updates the UI on the message thread.
+    juce::Thread::launch([safeThis = juce::Component::SafePointer<PluginEditor>(this), &proc = processor]() {
+        proc.triggerAuthValidation();
+        juce::MessageManager::callAsync([safeThis, &proc]() {
+            if (safeThis == nullptr) return;
+            if (proc.isUserAuthenticated())
+            {
+                safeThis->topBar.setAccountLabel(proc.getAuthEmail(), true);
+            }
+            else
+            {
+                safeThis->topBar.setAccountLabel("Not activated", false);
+                safeThis->authOverlay = std::make_unique<AuthOverlayComponent>();
+
+                // On successful login: store token, update UI, dismiss overlay
+                safeThis->authOverlay->onLoginSuccess = [safeThis, &proc](const juce::String& token,
+                                                                           const juce::String& email) {
+                    if (safeThis == nullptr) return;
+                    proc.applyAuthCredentials(token, email);
+                    safeThis->topBar.setAccountLabel(email, true);
+                    safeThis->authOverlay.reset();
+                    safeThis->resized();
+                };
+
+                safeThis->addAndMakeVisible(*safeThis->authOverlay);
+                safeThis->authOverlay->setBounds(safeThis->getLocalBounds());
+                safeThis->authOverlay->toFront(false);
+            }
+        });
+    });
 }
 
 PluginEditor::~PluginEditor()
@@ -596,6 +629,10 @@ void PluginEditor::resized()
     tabbedPanel.setBounds(mainArea.reduced(15, 0));
 
     // Envelope and LFO panels now handle their own layout via their resized() methods
+
+    // Keep auth overlay covering the full content area (below top bar)
+    if (authOverlay != nullptr)
+        authOverlay->setBounds(getLocalBounds().withTrimmedTop(60));
 }
 
 void PluginEditor::timerCallback()

@@ -93,15 +93,34 @@ public:
     // MIDI learn
     Modulation::MidiLearn& getMidiLearn() { return midiLearn; }
 
+    // Auth — called from PluginEditor on background thread
+    void triggerAuthValidation() { validateAuthToken(); }
+    bool isUserAuthenticated() const { return isAuthenticated.load(); }
+    juce::String getAuthEmail() const { return authEmail; }
+    // Store login credentials and write config.json (call on message thread)
+    void applyAuthCredentials(const juce::String& token, const juce::String& email)
+    {
+        authToken = token;
+        authEmail = email;
+        isAuthenticated = true;
+        saveAuthToConfig();
+    }
+
     // Mod matrix routing (5 rows: srcId, dstId, amount)
     struct ModRowData { int srcId = 1, dstId = 1; float amount = 0.0f; };
     void setModMatrixRow(int row, int srcId, int dstId, float amount);
     const std::array<ModRowData, 5>& getModMatrixRows() const { return modMatrixRows; }
 
 private:
-    // Read config file for samples path
+    // Read config file for samples path + auth token
     juce::File readSamplesPathFromConfig();
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    // Validate auth token against Producer Tour API (runs on a background thread)
+    void validateAuthToken();
+
+    // Write auth token + email back to config.json (preserves existing samplesPath)
+    void saveAuthToConfig();
 
     // Synth engine
     Engine::VoiceManager voiceManager;
@@ -138,6 +157,11 @@ private:
     // Flag to track if setStateInformation has been called
     // This protects against FL Studio's bug where getState is called before setState
     bool stateHasBeenRestored = false;
+
+    // Authentication state (populated from config.json, validated against Producer Tour API)
+    juce::String authToken;
+    juce::String authEmail;
+    std::atomic<bool> isAuthenticated { false };
 
     // Audio level metering
     std::atomic<float> currentRmsLevel{0.0f};

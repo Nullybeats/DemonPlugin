@@ -150,6 +150,13 @@ public:
                 onPresetChange(presetCombo.getSelectedId(), presetCombo.getText());
         };
 
+        // Account status label (top-right, populated after auth validation)
+        accountLabel.setText("", juce::dontSendNotification);
+        accountLabel.setJustificationType(juce::Justification::centredRight);
+        accountLabel.setFont(juce::Font(9.0f));
+        accountLabel.setColour(juce::Label::textColourId, HellcatColors::textTertiary);
+        addAndMakeVisible(accountLabel);
+
         // Animate meter
         startTimerHz(10);
     }
@@ -208,8 +215,10 @@ public:
         // Logo (left) - give more space for NullyBeats logo + DEMON text
         logoBounds = bounds.removeFromLeft(220);
 
-        // Output meter (right)
-        meterBounds = bounds.removeFromRight(100);
+        // Output meter + account label (right)
+        auto rightArea = bounds.removeFromRight(110);
+        accountLabel.setBounds(rightArea.removeFromTop(14));
+        meterBounds = rightArea;
 
         // Voice mode + glide + performance knobs (right)
         auto modeBounds = bounds.removeFromRight(430).reduced(0, 12);
@@ -297,6 +306,17 @@ public:
     void setRmsLevel(float rms)
     {
         currentRms = juce::jlimit(0.0f, 1.0f, rms);
+    }
+
+    /** Update the account status label shown in the top-right corner.
+        authenticated=true  → red "● email"
+        authenticated=false → grey "○ Not activated" */
+    void setAccountLabel(const juce::String& text, bool authenticated)
+    {
+        accountLabel.setText((authenticated ? juce::String(L"\u25CF ") : juce::String(L"\u25CB ")) + text,
+                              juce::dontSendNotification);
+        accountLabel.setColour(juce::Label::textColourId,
+                               authenticated ? HellcatColors::hellcatRed : HellcatColors::textTertiary);
     }
 
 private:
@@ -463,4 +483,5 @@ private:
     juce::Image logoImage;
     int meterLevel = 0;
     float currentRms = 0.0f;
+    juce::Label accountLabel;
 };

@@ -7,7 +7,7 @@
 #define MyAppName "Demon Synth"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Nully Beats LLC"
-#define MyAppURL "https://nullybeats.com"
+#define MyAppURL "https://producertour.com"
 #define MyAppCopyright "© 2024 Nolan Griffis p/k/a Nully Beats - Nully Beats LLC / Producer Tour Publishing LLC"
 
 [Setup]
@@ -26,13 +26,9 @@ DisableProgramGroupPage=yes
 LicenseFile=..\LICENSE.txt
 OutputDir=..\Output
 OutputBaseFilename=DemonSynth_v{#MyAppVersion}_Windows
-; Note: Using default Inno Setup icon and wizard images
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
-DiskSpanning=yes
-SlicesPerDisk=1
-DiskSliceSize=2100000000
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -43,28 +39,23 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Messages]
 WelcomeLabel1=Welcome to the {#MyAppName} Setup
-WelcomeLabel2=This will install {#MyAppName} {#MyAppVersion} on your computer.%n%n{#MyAppCopyright}%n%nIt is recommended that you close all other applications before continuing.
+WelcomeLabel2=This will install {#MyAppName} {#MyAppVersion} on your computer.%n%n{#MyAppCopyright}%n%nTo activate the plugin and download sound banks, sign in with your%nProducer Tour account when you first load the plugin in your DAW.%n%nIt is recommended that you close all other applications before continuing.
 FinishedHeadingLabel=Completing the {#MyAppName} Setup
-FinishedLabelNoIcons=Setup has finished installing {#MyAppName} on your computer.%n%nPlease restart your DAW (FL Studio, Ableton, etc.) to use the plugin.
-FinishedLabel=Setup has finished installing {#MyAppName} on your computer.%n%nPlease restart your DAW (FL Studio, Ableton, etc.) to use the plugin.
+FinishedLabelNoIcons=Setup has finished installing {#MyAppName} on your computer.%n%nOpen your DAW, load Demon Synth, and sign in with your Producer Tour account to activate.%n%nDownload your sound banks from producertour.com/account/purchases.
+FinishedLabel=Setup has finished installing {#MyAppName} on your computer.%n%nOpen your DAW, load Demon Synth, and sign in with your Producer Tour account to activate.%n%nDownload your sound banks from producertour.com/account/purchases.
 
 [Types]
-Name: "full"; Description: "Full installation (VST3 + Standalone + Sample Presets)"
+Name: "full"; Description: "Full installation (VST3 + Standalone)"
 Name: "vst3only"; Description: "VST3 plugin only"
 Name: "custom"; Description: "Custom installation"; Flags: iscustom
 
 [Components]
 Name: "vst3"; Description: "VST3 Plugin (for FL Studio, Ableton, etc.)"; Types: full vst3only custom; Flags: fixed
 Name: "standalone"; Description: "Standalone Application"; Types: full custom
-Name: "samples"; Description: "Sample Presets (108 sounds)"; Types: full custom
 
 [Tasks]
 Name: "desktopicon"; Description: "Create desktop shortcut"; GroupDescription: "Additional options:"; Components: standalone
 Name: "startmenuicon"; Description: "Create Start Menu shortcut"; GroupDescription: "Additional options:"; Components: standalone
-
-[Dirs]
-; Sample presets directory - user can customize this
-Name: "{code:GetSamplesDir}"; Components: samples
 
 [Files]
 ; VST3 Plugin - Install to Common Files VST3 folder
@@ -72,9 +63,6 @@ Source: "..\..\build\NulyBeatsPlugin_artefacts\Release\VST3\Demon Synth.vst3\*";
 
 ; Standalone Application
 Source: "..\..\build\NulyBeatsPlugin_artefacts\Release\Standalone\Demon Synth.exe"; DestDir: "{app}"; Components: standalone; Flags: ignoreversion
-
-; Sample Presets - Install to user-selected directory
-Source: "..\..\Resources\Samples\*"; DestDir: "{code:GetSamplesDir}"; Components: samples; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; License file
 Source: "..\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -86,8 +74,6 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\Demon Synth.exe"; Component
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\Demon Synth.exe"; Components: standalone; Tasks: startmenuicon
 
 [Registry]
-; Store samples path in registry for plugin to read
-Root: HKCU; Subkey: "Software\NullyBeats\Demon Synth"; ValueType: string; ValueName: "SamplesPath"; ValueData: "{code:GetSamplesDir}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\NullyBeats\Demon Synth"; ValueType: string; ValueName: "Version"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\NullyBeats\Demon Synth"; ValueType: string; ValueName: "InstallDate"; ValueData: "{code:GetCurrentDate}"; Flags: uninsdeletekey
 
@@ -96,28 +82,20 @@ Filename: "{app}\Demon Synth.exe"; Description: "Launch {#MyAppName}"; Flags: no
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{commoncf64}\VST3\Demon Synth.vst3"
-Type: dirifempty; Name: "{code:GetSamplesDir}"
 
 ; Clean up FL Studio plugin database cache (if FL Studio is installed)
-; Generators - VST3
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\VST3\Demon Synth.fst"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\VST3\Demon Synth.nfo"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\VST3\NulyBeats Synth.fst"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\VST3\NulyBeats Synth.nfo"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\VST3\Nuly Beats.fst"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\VST3\Nuly Beats.nfo"
-
-; Generators - New (FL Studio puts newly scanned plugins here)
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\New\Demon Synth.fst"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\New\Demon Synth.nfo"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\New\NulyBeats Synth.fst"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Generators\New\NulyBeats Synth.nfo"
-
-; Effects - VST3 (in case plugin was miscategorized)
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Effects\VST3\Demon Synth.fst"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Installed\Effects\VST3\Demon Synth.nfo"
-
-; Non-Installed path (FL Studio sometimes puts entries here too)
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Generators\Demon Synth.fst"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Generators\Demon Synth.nfo"
 Type: files; Name: "{userdocs}\Image-Line\FL Studio\Presets\Plugin database\Generators\NulyBeats Synth.fst"
@@ -145,60 +123,47 @@ begin
 end;
 
 function EscapeBackslashes(const S: String): String;
-var
-  I: Integer;
+var I: Integer;
 begin
   Result := '';
   for I := 1 to Length(S) do
   begin
-    if S[I] = '\' then
-      Result := Result + '\\'
-    else
-      Result := Result + S[I];
+    if S[I] = '\' then Result := Result + '\\'
+    else Result := Result + S[I];
   end;
 end;
 
 procedure InitializeWizard;
 begin
-  // Create custom page for samples directory selection
+  // Custom page: let user choose where they'll put their downloaded sound banks
   SamplesDirPage := CreateInputDirPage(
     wpSelectComponents,
-    'Sample Presets Location',
-    'Where should the sample presets be installed?',
-    'The plugin will look for sample presets in this folder.' + #13#10 + #13#10 +
-    'You can change this location if you want to store samples on a different drive.' + #13#10 +
-    'Click Next to use the default folder, or click Browse to choose a different folder.',
+    'Sound Banks Location',
+    'Where will you store your Demon Synth sound banks?',
+    'After installing, download your sound banks from producertour.com/account/purchases' + #13#10 +
+    'and extract them to the folder selected here.' + #13#10 + #13#10 +
+    'Choose a drive with at least 10 GB of free space.',
     False,
     'New Folder'
   );
-
-  // Set default samples directory
   SamplesDirPage.Add('');
   SamplesDirPage.Values[0] := ExpandConstant('{userappdata}\NullyBeats\Demon Synth\Samples');
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  // Skip samples directory page if samples component is not selected
-  if PageID = SamplesDirPage.ID then
-    Result := not WizardIsComponentSelected('samples')
-  else
-    Result := False;
+  Result := False;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-
-  // Save samples directory when leaving the custom page
   if CurPageID = SamplesDirPage.ID then
   begin
     SamplesDir := SamplesDirPage.Values[0];
-
-    // Validate directory
     if SamplesDir = '' then
     begin
-      MsgBox('Please select a valid directory for sample presets.', mbError, MB_OK);
+      MsgBox('Please select a folder for the sound banks.', mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -206,46 +171,38 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ConfigDir: String;
-  ConfigFile: String;
-  ConfigContent: String;
+  ConfigDir, ConfigFile, ConfigContent: String;
 begin
   if CurStep = ssPostInstall then
   begin
-    // Create config file for plugin to read
+    // Write config.json so the plugin knows where to look for samples
     ConfigDir := ExpandConstant('{userappdata}\NullyBeats\Demon Synth');
     ForceDirectories(ConfigDir);
-
     ConfigFile := ConfigDir + '\config.json';
-    ConfigContent := '{' + #13#10 +
+    ConfigContent :=
+      '{' + #13#10 +
       '    "version": "' + ExpandConstant('{#MyAppVersion}') + '",' + #13#10 +
       '    "samplesPath": "' + EscapeBackslashes(GetSamplesDir('')) + '",' + #13#10 +
       '    "installedDate": "' + GetCurrentDate('') + '",' + #13#10 +
-      '    "licenseAccepted": true' + #13#10 +
+      '    "licenseAccepted": true,' + #13#10 +
+      '    "authToken": "",' + #13#10 +
+      '    "email": ""' + #13#10 +
       '}';
-
     SaveStringToFile(ConfigFile, ConfigContent, False);
   end;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  // Update samples directory from page when changed
   if CurPageID = SamplesDirPage.ID then
-  begin
-    // Pre-populate with current value
     if SamplesDir <> '' then
       SamplesDirPage.Values[0] := SamplesDir;
-  end;
 end;
 
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
-var
-  S: String;
+var S: String;
 begin
-  S := '';
-
-  S := S + 'Installation Summary:' + NewLine + NewLine;
+  S := 'Installation Summary:' + NewLine + NewLine;
 
   if WizardIsComponentSelected('vst3') then
     S := S + Space + 'VST3 Plugin: ' + ExpandConstant('{commoncf64}\VST3\Demon Synth.vst3') + NewLine;
@@ -253,11 +210,12 @@ begin
   if WizardIsComponentSelected('standalone') then
     S := S + Space + 'Standalone App: ' + ExpandConstant('{app}\Demon Synth.exe') + NewLine;
 
-  if WizardIsComponentSelected('samples') then
-    S := S + Space + 'Sample Presets: ' + GetSamplesDir('') + NewLine;
-
+  S := S + Space + 'Sound Banks folder: ' + GetSamplesDir('') + NewLine;
   S := S + NewLine;
-  S := S + 'After installation, restart your DAW to see the plugin.' + NewLine;
+  S := S + 'After installation:' + NewLine;
+  S := S + Space + '1. Restart your DAW' + NewLine;
+  S := S + Space + '2. Load Demon Synth and sign in with your Producer Tour account' + NewLine;
+  S := S + Space + '3. Download sound banks from producertour.com/account/purchases' + NewLine;
 
   Result := S;
 end;

@@ -927,23 +927,28 @@ juce::File PluginProcessor::readSamplesPathFromConfig()
     {
         juce::String content = configFile.loadFileAsString();
 
-        // Simple JSON parsing for samplesPath
-        int pathStart = content.indexOf(juce::String("\"samplesPath\""));
-        if (pathStart >= 0)
+        // Helper: extract a flat JSON string value by key
+        auto extractJsonString = [&](const juce::String& key) -> juce::String {
+            int keyPos = content.indexOf("\"" + key + "\"");
+            if (keyPos < 0) return {};
+            int colon     = content.indexOfChar(keyPos, ':') + 1;
+            int qOpen     = content.indexOfChar(colon,  '"') + 1;
+            int qClose    = content.indexOfChar(qOpen,  '"');
+            if (qOpen <= 0 || qClose <= qOpen) return {};
+            return content.substring(qOpen, qClose);
+        };
+
+        // Auth token + email (stored by installer)
+        authToken = extractJsonString("authToken");
+        authEmail = extractJsonString("email");
+
+        // samplesPath
+        juce::String path = extractJsonString("samplesPath");
+        if (path.isNotEmpty())
         {
-            int valueStart = content.indexOfChar(pathStart, ':') + 1;
-            int quoteStart = content.indexOfChar(valueStart, '"') + 1;
-            int quoteEnd = content.indexOfChar(quoteStart, '"');
-
-            if (quoteStart > 0 && quoteEnd > quoteStart)
-            {
-                juce::String path = content.substring(quoteStart, quoteEnd);
-                // Unescape backslashes (from JSON)
-                path = path.replace("\\\\", "\\");
-
-                DBG("Config file found, samples path: " + path);
-                return juce::File(path);
-            }
+            path = path.replace("\\\\", "\\");
+            DBG("Config file found, samples path: " + path);
+            return juce::File(path);
         }
     }
 
@@ -1007,6 +1012,66 @@ juce::File PluginProcessor::getSamplesDirectory()
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
         .getChildFile("NullyBeats/Demon Synth/Samples");
 #endif
+}
+
+void PluginProcessor::saveAuthToConfig()
+{
+    juce::File configDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                               .getChildFile("NullyBeats/Demon Synth");
+    configDir.createDirectory();
+    juce::File configFile = configDir.getChildFile("config.json");
+
+    // Preserve existing samplesPath if the file already exists
+    juce::String samplesPath;
+    if (configFile.existsAsFile())
+    {
+        auto content = configFile.loadFileAsString();
+        int kp = content.indexOf("\"samplesPath\"");
+        if (kp >= 0)
+        {
+            int qo = content.indexOfChar(content.indexOfChar(kp, ':'), '"') + 1;
+            int qc = content.indexOfChar(qo, '"');
+            if (qo > 0 && qc > qo)
+                samplesPath = content.substring(qo, qc).replace("\\\\", "\\");
+        }
+    }
+
+    auto escape = [](const juce::String& s) { return s.replace("\\", "\\\\"); };
+
+    configFile.replaceWithText(
+        juce::String("{\n")
+        + "    \"version\": \"1.0.0\",\n"
+        + "    \"samplesPath\": \"" + escape(samplesPath) + "\",\n"
+        + "    \"licenseAccepted\": true,\n"
+        + "    \"authToken\": \"" + authToken + "\",\n"
+        + "    \"email\": \"" + authEmail + "\"\n"
+        + "}\n");
+}
+
+void PluginProcessor::validateAuthToken()
+{
+    // Must be called on a background thread — never call directly from audio thread.
+    if (authToken.isEmpty())
+    {
+        isAuthenticated = false;
+        return;
+    }
+
+    juce::URL url("https://api.producertour.com/api/plugin/verify");
+    auto opts = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withExtraHeaders("Authorization: Bearer " + authToken)
+                    .withConnectionTimeoutMs(5000);
+
+    if (auto stream = url.createInputStream(opts))
+    {
+        auto response = stream->readEntireStreamAsString();
+        isAuthenticated = response.contains("\"valid\":true");
+    }
+    else
+    {
+        // No network — fail open so offline studios aren't locked out
+        isAuthenticated = true;
+    }
 }
 
 } // namespace NulyBeats
