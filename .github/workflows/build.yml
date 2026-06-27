@@ -118,7 +118,7 @@ jobs:
     runs-on: macos-latest
     env:
       APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
-      SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY || 'Developer ID Application: Producer Tour LLC (W28TLN4A8X)' }}
+      SIGN_IDENTITY: "${{ secrets.APPLE_SIGN_IDENTITY || 'Developer ID Application: Producer Tour LLC (W28TLN4A8X)' }}"
 
     steps:
       - name: Checkout code
@@ -126,6 +126,12 @@ jobs:
         with:
           submodules: recursive
           lfs: false
+
+      - name: Load plugin config
+        run: |
+          source plugin.config.sh
+          echo "PLUGIN_DISPLAY=$PLUGIN_DISPLAY" >> "$GITHUB_ENV"
+          echo "DMG_BASENAME=$DMG_BASENAME" >> "$GITHUB_ENV"
 
       - name: Configure CMake (Universal Binary)
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
@@ -151,9 +157,9 @@ jobs:
         if: env.APPLE_CERT_P12 != ''
         run: |
           for p in \
-            "build/NulyBeatsPlugin_artefacts/Release/VST3/Demon Synth.vst3" \
-            "build/NulyBeatsPlugin_artefacts/Release/AU/Demon Synth.component" \
-            "build/NulyBeatsPlugin_artefacts/Release/Standalone/Demon Synth.app"; do
+            "build/NulyBeatsPlugin_artefacts/Release/VST3/$PLUGIN_DISPLAY.vst3" \
+            "build/NulyBeatsPlugin_artefacts/Release/AU/$PLUGIN_DISPLAY.component" \
+            "build/NulyBeatsPlugin_artefacts/Release/Standalone/$PLUGIN_DISPLAY.app"; do
             [ -e "$p" ] && codesign --deep --force --timestamp --options runtime \
               --sign "$SIGN_IDENTITY" "$p" || true
           done
@@ -173,7 +179,7 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          DMG="Installer/Output/DemonSynth_v1.0.0_macOS.dmg"
+          DMG="Installer/Output/${DMG_BASENAME}.dmg"
           xcrun notarytool submit "$DMG" \
             --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
           xcrun stapler staple "$DMG"
@@ -183,7 +189,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DemonSynth-macOS-DMG
-          path: Installer/Output/DemonSynth_v1.0.0_macOS.dmg
+          path: Installer/Output/${{ env.DMG_BASENAME }}.dmg
           retention-days: 90
 
   # ─────────────────────────────────────────────────────────
