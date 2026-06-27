@@ -1,20 +1,45 @@
 name: Build Demon Synth
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  Secrets (GitHub → repo Settings → Secrets and variables → Actions).
+#  Every signing/upload step is GATED on its secrets — if a secret is missing the
+#  step is skipped and the build still produces (unsigned) artifacts.
+#
+#  macOS signing + notarization:
+#    APPLE_CERT_P12         base64 of the Developer ID Application .p12
+#    APPLE_CERT_PASSWORD    password set when exporting the .p12
+#    APPLE_ID               producertour@gmail.com
+#    APPLE_APP_PASSWORD     app-specific password from appleid.apple.com
+#    APPLE_TEAM_ID          W28TLN4A8X
+#    APPLE_SIGN_IDENTITY    (optional) defaults to:
+#                           Developer ID Application: Producer Tour LLC (W28TLN4A8X)
+#
+#  Windows signing:
+#    WINDOWS_CERT_PFX       base64 of the OV/EV code-signing .pfx
+#    WINDOWS_CERT_PASSWORD  password for the .pfx
+#
+#  R2 upload (on version tags only):
+#    R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
+# ─────────────────────────────────────────────────────────────────────────────
+
 on:
   push:
     branches: [main, master]
     tags:
-      - 'v*'   # v1.0.0, v1.1.0, etc. → triggers GitHub Release
+      - 'v*'   # v1.0.0, v1.1.0, etc. → triggers GitHub Release + R2 upload
   pull_request:
     branches: [main, master]
   workflow_dispatch:
 
 jobs:
   # ─────────────────────────────────────────────────────────
-  #  WINDOWS — ships immediately, SmartScreen warning only
+  #  WINDOWS — builds the bank-downloading Inno installer,
+  #  Authenticode-signs it when WINDOWS_CERT_PFX is present.
   # ─────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
+    env:
+      WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
 
     steps:
       - name: Checkout code
@@ -37,40 +62,63 @@ jobs:
       - name: Build Release
         run: cmake --build build --config Release
 
+      - name: Decode signing certificate
+        if: env.WINDOWS_CERT_PFX != ''
+        shell: pwsh
+        env:
+          CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:CERT_PFX))
+
+      - name: Sign VST3 (before packaging)
+        if: env.WINDOWS_CERT_PFX != ''
+        shell: pwsh
+        env:
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          Get-ChildItem -Recurse "build\NulyBeatsPlugin_artefacts\Release\VST3" -Include *.vst3,*.dll |
+            ForEach-Object {
+              & $signtool.FullName sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 `
+                /f "$env:RUNNER_TEMP\cert.pfx" /p $env:CERT_PASSWORD $_.FullName
+            }
+
       - name: Build Windows Installer
         run: |
           cd Installer/Windows
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "DemonSynth.iss"
 
-      - name: Upload Windows Installer
+      - name: Sign installer
+        if: env.WINDOWS_CERT_PFX != ''
+        shell: pwsh
+        env:
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          Get-ChildItem "Installer\Output\DemonSynth_v*.exe" | ForEach-Object {
+            & $signtool.FullName sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 `
+              /f "$env:RUNNER_TEMP\cert.pfx" /p $env:CERT_PASSWORD $_.FullName
+            & $signtool.FullName verify /pa /v $_.FullName
+          }
+
+      - name: Upload Windows Installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: DemonSynth-Windows-Installer
           path: Installer/Output/DemonSynth_v*.exe
           retention-days: 90
 
-      - name: Upload Windows VST3
-        uses: actions/upload-artifact@v4
-        with:
-          name: DemonSynth-Windows-VST3
-          path: build/NulyBeatsPlugin_artefacts/Release/VST3/
-          retention-days: 90
-
   # ─────────────────────────────────────────────────────────
-  #  macOS — unsigned now; signing auto-enables when you add
-  #  the 5 secrets below to GitHub repo Settings → Secrets
-  #
-  #  Secrets needed:
-  #    APPLE_ID               your Apple ID email
-  #    APPLE_CERT_P12         base64 of Developer ID .p12 cert
-  #    APPLE_CERT_PASSWORD    password set when exporting .p12
-  #    APPLE_TEAM_ID          10-char team ID (e.g. ABC123DEF4)
-  #    APPLE_NOTARIZE_PASSWORD  App-Specific Password from appleid.apple.com
+  #  macOS — builds, signs (Developer ID), packages the
+  #  bank-downloading DMG, then notarizes + staples the DMG.
   # ─────────────────────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
     env:
       APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+      SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY || 'Developer ID Application: Producer Tour LLC (W28TLN4A8X)' }}
 
     steps:
       - name: Checkout code
@@ -99,75 +147,80 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
           rm /tmp/cert.p12
 
-      - name: Sign VST3
+      - name: Sign plugins (Developer ID + hardened runtime + timestamp)
         if: env.APPLE_CERT_P12 != ''
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          codesign --deep --force --verify --verbose \
-            --sign "Developer ID Application: NullyBeats ($TEAM_ID)" \
-            --options runtime \
-            "build/NulyBeatsPlugin_artefacts/Release/VST3/Demon Synth.vst3"
+          for p in \
+            "build/NulyBeatsPlugin_artefacts/Release/VST3/Demon Synth.vst3" \
+            "build/NulyBeatsPlugin_artefacts/Release/AU/Demon Synth.component" \
+            "build/NulyBeatsPlugin_artefacts/Release/Standalone/Demon Synth.app"; do
+            [ -e "$p" ] && codesign --deep --force --timestamp --options runtime \
+              --sign "$SIGN_IDENTITY" "$p" || true
+          done
 
-      - name: Sign AU
+      - name: Package signed DMG (bundles the bank-downloading installer)
         if: env.APPLE_CERT_P12 != ''
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          codesign --deep --force --verify --verbose \
-            --sign "Developer ID Application: NullyBeats ($TEAM_ID)" \
-            --options runtime \
-            "build/NulyBeatsPlugin_artefacts/Release/AU/Demon Synth.component"
+          chmod +x Installer/macOS/release_macos.sh
+          # --from-build packages the freshly-signed local build; --no-notarize
+          # because the next step notarizes the whole DMG in one shot.
+          ./Installer/macOS/release_macos.sh --from-build --no-notarize
 
-      - name: Notarize and staple
+      - name: Notarize + staple DMG
         if: env.APPLE_CERT_P12 != ''
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          NOTARIZE_PASSWORD: ${{ secrets.APPLE_NOTARIZE_PASSWORD }}
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          VST3="build/NulyBeatsPlugin_artefacts/Release/VST3/Demon Synth.vst3"
-          AU="build/NulyBeatsPlugin_artefacts/Release/AU/Demon Synth.component"
-          zip -r /tmp/DemonSynth_plugins.zip "$VST3" "$AU"
-          xcrun notarytool submit /tmp/DemonSynth_plugins.zip \
-            --apple-id "$APPLE_ID" \
-            --password "$NOTARIZE_PASSWORD" \
-            --team-id "$TEAM_ID" \
-            --wait
-          xcrun stapler staple "$VST3"
-          xcrun stapler staple "$AU"
+          DMG="Installer/Output/DemonSynth_v1.0.0_macOS.dmg"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$DMG"
+          spctl -a -vvv -t open --context context:primary-signature "$DMG" || true
 
-      - name: Upload macOS VST3
+      - name: Upload macOS DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DemonSynth-macOS-VST3
-          path: build/NulyBeatsPlugin_artefacts/Release/VST3/
-          retention-days: 90
-
-      - name: Upload macOS AU
-        uses: actions/upload-artifact@v4
-        with:
-          name: DemonSynth-macOS-AU
-          path: build/NulyBeatsPlugin_artefacts/Release/AU/
+          name: DemonSynth-macOS-DMG
+          path: Installer/Output/DemonSynth_v1.0.0_macOS.dmg
           retention-days: 90
 
   # ─────────────────────────────────────────────────────────
-  #  RELEASE — only runs on version tags (v1.0.0, v1.1.0…)
-  #  Creates a permanent GitHub Release with download links
+  #  PUBLISH — on version tags only. Pushes the signed
+  #  artifacts to R2 (what producertour.com serves) and to a
+  #  permanent GitHub Release.
   # ─────────────────────────────────────────────────────────
   publish-release:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-
     permissions:
       contents: write
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
 
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets/
+
+      - name: Upload to R2 (producertour.com download source)
+        if: env.R2_ACCOUNT_ID != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          WIN=$(find release-assets -name 'DemonSynth_v*_Windows.exe' | head -1)
+          DMG=$(find release-assets -name 'DemonSynth_v*_macOS.dmg' | head -1)
+          [ -n "$WIN" ] && aws s3 cp "$WIN" "s3://${R2_BUCKET}/plugins/demon-synth/$(basename "$WIN")" \
+            --endpoint-url "$ENDPOINT" --checksum-algorithm CRC32
+          [ -n "$DMG" ] && aws s3 cp "$DMG" "s3://${R2_BUCKET}/plugins/demon-synth/$(basename "$DMG")" \
+            --endpoint-url "$ENDPOINT" --checksum-algorithm CRC32
+          echo "Uploaded to R2. Re-run seed-demon-synth.ts if filenames changed."
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -176,17 +229,8 @@ jobs:
           body: |
             ## Demon Synth ${{ github.ref_name }} by NullyBeats
 
-            ### Installation
-
-            **macOS**
-            - Download `DemonSynth-macOS-VST3` → copy `Demon Synth.vst3` to `/Library/Audio/Plug-Ins/VST3/`
-            - Download `DemonSynth-macOS-AU` → copy `Demon Synth.component` to `/Library/Audio/Plug-Ins/Components/`
-
-            **Windows**
-            - Run `DemonSynth-Windows-Installer` and follow the prompts
-
-            ### Samples
-            See README for Strings sample library installation.
+            **macOS** — open `DemonSynth-macOS-DMG`, run "Install Demon Synth" (signed + notarized; downloads the 8.5 GB of banks during install).
+            **Windows** — run `DemonSynth-Windows-Installer` (downloads the banks during install).
           files: release-assets/**/*
           draft: false
           prerelease: false
